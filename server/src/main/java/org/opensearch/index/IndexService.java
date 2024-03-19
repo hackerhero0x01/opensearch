@@ -41,6 +41,7 @@ import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.Accountable;
 import org.opensearch.client.Client;
+import org.opensearch.cluster.metadata.ComposableIndexTemplate;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNode;
@@ -92,6 +93,7 @@ import org.opensearch.index.shard.ShardNotInPrimaryModeException;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.index.similarity.SimilarityService;
 import org.opensearch.index.store.RemoteSegmentStoreDirectoryFactory;
+import org.opensearch.index.store.CompositeDirectory;
 import org.opensearch.index.store.Store;
 import org.opensearch.index.translog.Translog;
 import org.opensearch.index.translog.TranslogFactory;
@@ -109,6 +111,7 @@ import org.opensearch.script.ScriptService;
 import org.opensearch.search.aggregations.support.ValuesSourceRegistry;
 import org.opensearch.threadpool.ThreadPool;
 
+import java.awt.*;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -494,6 +497,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                 }
             };
             Store remoteStore = null;
+<<<<<<< HEAD
             boolean seedRemote = false;
             if (targetNode.isRemoteStoreNode()) {
                 final Directory remoteDirectory;
@@ -514,10 +518,18 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                         this.indexSettings.getRemoteStorePathStrategy()
                     );
                 }
+=======
+            Directory remoteDirectory = null;
+            if (this.indexSettings.isRemoteStoreEnabled()) {
+                remoteDirectory = remoteDirectoryFactory.newDirectory(this.indexSettings, path);
+>>>>>>> f1cd4e4895d (Refactor TransferManager interface to RemoteStoreFileTrackerAdapter)
                 remoteStore = new Store(shardId, this.indexSettings, remoteDirectory, lock, Store.OnClose.EMPTY, path);
             }
 
             Directory directory = directoryFactory.newDirectory(this.indexSettings, path);
+            if (directory instanceof CompositeDirectory) {
+                ((CompositeDirectory) directory).setRemoteDirectory(remoteDirectory);
+            }
             store = new Store(
                 shardId,
                 this.indexSettings,
