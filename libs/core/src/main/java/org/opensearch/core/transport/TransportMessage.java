@@ -36,6 +36,9 @@ import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.common.transport.TransportAddress;
 
+import java.util.Collections;
+import java.util.Map;
+
 /**
  * Message over the transport interface
  *
@@ -45,12 +48,22 @@ public abstract class TransportMessage implements Writeable {
 
     private TransportAddress remoteAddress;
 
+    private Map<String, String> header = Collections.emptyMap();
+
     public void remoteAddress(TransportAddress remoteAddress) {
         this.remoteAddress = remoteAddress;
     }
 
+    public void setResponseHeaders(Map<String, String> header) {
+        this.header = header;
+    }
+
     public TransportAddress remoteAddress() {
         return remoteAddress;
+    }
+
+    public Map<String, String> getResponseHeaders() {
+        return header;
     }
 
     /**

@@ -11,11 +11,13 @@ package org.opensearch.telemetry.tracing;
 import org.opensearch.common.annotation.InternalApi;
 import org.opensearch.common.util.concurrent.ThreadContext;
 import org.opensearch.common.util.concurrent.ThreadContextStatePropagator;
+import org.opensearch.telemetry.tracing.attributes.SamplingAttributes;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Core's ThreadContext based TracerContextStorage implementation
@@ -80,7 +82,22 @@ public class ThreadContextBasedTracerContextStorage implements TracerContextStor
         if (source.containsKey(CURRENT_SPAN)) {
             final SpanReference current = (SpanReference) source.get(CURRENT_SPAN);
             if (current != null && current.getSpan() != null) {
-                tracingTelemetry.getContextPropagator().inject(current.getSpan(), (key, value) -> headers.put(key, value));
+                tracingTelemetry.getContextPropagator().inject(current.getSpan(), headers::put);
+
+                // We will be sending one more header with the response if the request is marked for sampling
+                Optional<Boolean> isSpanSampled = Optional.ofNullable(
+                    current.getSpan().getAttributeBoolean(SamplingAttributes.SAMPLED.getValue())
+                );
+                if (isSpanSampled.isPresent()) {
+                    headers.put(SamplingAttributes.SAMPLED.getValue(), "true");
+                }
+                Optional<String> isSpanInferredSampled = Optional.ofNullable(
+                    current.getSpan().getAttributeString(SamplingAttributes.SAMPLER.getValue())
+                );
+                if (isSpanInferredSampled.isPresent()
+                    && isSpanInferredSampled.get().equals(SamplingAttributes.INFERRED_SAMPLER.getValue())) {
+                    headers.put(SamplingAttributes.SAMPLER.getValue(), isSpanInferredSampled.get());
+                }
             }
         }
 

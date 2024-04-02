@@ -136,10 +136,12 @@ public class InboundHandler {
         final Header header = message.getHeader();
         assert header.needsToReadVariableHeader() == false;
         ThreadContext threadContext = threadPool.getThreadContext();
+        Map<String, String> responseHeader;
         try (ThreadContext.StoredContext existing = threadContext.stashContext()) {
             // Place the context with the headers from the message
             threadContext.setHeaders(header.getHeaders());
             threadContext.putTransient("_remote_address", remoteAddress);
+            responseHeader = message.getHeader().getHeaders().v1();
             if (header.isRequest()) {
                 handleRequest(channel, header, message);
             } else {
@@ -169,11 +171,11 @@ public class InboundHandler {
                         if (header.isError()) {
                             handlerResponseError(requestId, streamInput, handler);
                         } else {
-                            handleResponse(requestId, remoteAddress, streamInput, handler);
+                            handleResponse(requestId, remoteAddress, streamInput, handler, responseHeader);
                         }
                     } else {
                         assert header.isError() == false;
-                        handleResponse(requestId, remoteAddress, EMPTY_STREAM_INPUT, handler);
+                        handleResponse(requestId, remoteAddress, EMPTY_STREAM_INPUT, handler, responseHeader);
                     }
                 }
 
@@ -391,12 +393,14 @@ public class InboundHandler {
         final long requestId,
         InetSocketAddress remoteAddress,
         final StreamInput stream,
-        final TransportResponseHandler<T> handler
+        final TransportResponseHandler<T> handler,
+        Map<String, String> responseHeader
     ) {
         final T response;
         try {
             response = handler.read(stream);
             response.remoteAddress(new TransportAddress(remoteAddress));
+            response.setResponseHeaders(responseHeader);
             checkStreamIsFullyConsumed(requestId, handler, stream, false);
         } catch (Exception e) {
             final Exception serializationException = new TransportSerializationException(

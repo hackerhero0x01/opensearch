@@ -8,8 +8,14 @@
 
 package org.opensearch.telemetry.tracing;
 
+import org.opensearch.telemetry.tracing.attributes.SamplingAttributes;
+
+import java.util.Optional;
+
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.sdk.trace.ReadableSpan;
 
 /**
  * Default implementation of {@link Span} using Otel span. It keeps a reference of OpenTelemetry Span and handles span
@@ -32,7 +38,31 @@ class OTelSpan extends AbstractSpan {
 
     @Override
     public void endSpan() {
+        if (isSpanOutlier()) {
+            markParentForSampling();
+        }
         delegateSpan.end();
+    }
+
+    /*
+     * This is added temporarily will remove this after the evaluation framework PR.
+     * This Framework will be used to evaluate a span if that is an outlier or not.
+     */
+    private boolean isSpanOutlier() {
+        Optional<Boolean> isSpanSampled = Optional.ofNullable(getAttributeBoolean(SamplingAttributes.SAMPLED.getValue()));
+        Optional<String> isSpanInferredSampled = Optional.ofNullable(getAttributeString(SamplingAttributes.SAMPLER.getValue()));
+
+        return isSpanSampled.isPresent()
+            && isSpanInferredSampled.isPresent()
+            && isSpanInferredSampled.get().equals(SamplingAttributes.INFERRED_SAMPLER.getValue());
+    }
+
+    private void markParentForSampling() {
+        org.opensearch.telemetry.tracing.Span currentParent = getParentSpan();
+        while (currentParent != null && currentParent.getAttributeBoolean(SamplingAttributes.SAMPLED.getValue()) == null) {
+            currentParent.addAttribute(SamplingAttributes.SAMPLED.getValue(), true);
+            currentParent = currentParent.getParentSpan();
+        }
     }
 
     @Override
@@ -77,8 +107,43 @@ class OTelSpan extends AbstractSpan {
         return delegateSpan.getSpanContext().getSpanId();
     }
 
+    @Override
+    public String getAttributeString(String key) {
+        if (delegateSpan != null && delegateSpan instanceof ReadableSpan) return ((ReadableSpan) delegateSpan).getAttribute(
+            AttributeKey.stringKey(key)
+        );
+
+        return null;
+    }
+
+    @Override
+    public Boolean getAttributeBoolean(String key) {
+        if (delegateSpan != null && delegateSpan instanceof ReadableSpan) {
+            return ((ReadableSpan) delegateSpan).getAttribute(AttributeKey.booleanKey(key));
+        }
+
+        return null;
+    }
+
+    @Override
+    public Long getAttributeLong(String key) {
+        if (delegateSpan != null && delegateSpan instanceof ReadableSpan) return ((ReadableSpan) delegateSpan).getAttribute(
+            AttributeKey.longKey(key)
+        );
+
+        return null;
+    }
+
+    @Override
+    public Double getAttributeDouble(String key) {
+        if (delegateSpan != null && delegateSpan instanceof ReadableSpan) return ((ReadableSpan) delegateSpan).getAttribute(
+            AttributeKey.doubleKey(key)
+        );
+
+        return null;
+    }
+
     io.opentelemetry.api.trace.Span getDelegateSpan() {
         return delegateSpan;
     }
-
 }
