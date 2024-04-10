@@ -16,10 +16,12 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.store.Lock;
+import org.apache.lucene.store.LockObtainFailedException;
 import org.opensearch.index.store.remote.file.OnDemandCompositeBlockIndexInput;
 import org.opensearch.index.store.remote.filecache.FileCache;
 import org.opensearch.index.store.remote.utils.FileType;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
@@ -30,22 +32,40 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+/**
+ * Composite Directory will contain both local and remote directory
+ * Consumers of Composite directory need not worry whether file is in local or remote
+ * All such abstractions will be handled by the Composite directory itself
+ * Implements all required methods by Directory abstraction
+ */
 public class CompositeDirectory extends FilterDirectory {
     private static final Logger logger = LogManager.getLogger(CompositeDirectory.class);
     private final FSDirectory localDirectory;
-    private final BaseRemoteSegmentStoreDirectory remoteDirectory;
+    private final RemoteSegmentStoreDirectory remoteDirectory;
     private final FileCache fileCache;
     private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock.WriteLock writeLock = readWriteLock.writeLock();
     private final ReentrantReadWriteLock.ReadLock readLock = readWriteLock.readLock();
 
-    public CompositeDirectory(FSDirectory localDirectory, BaseRemoteSegmentStoreDirectory remoteDirectory, FileCache fileCache) {
+    /**
+     * Constructor to initialise the composite directory
+     * @param localDirectory corresponding to the local FSDirectory
+     * @param remoteDirectory corresponding to the remote directory
+     * @param fileCache used to cache the remote files locally
+     */
+    public CompositeDirectory(FSDirectory localDirectory, RemoteSegmentStoreDirectory remoteDirectory, FileCache fileCache) {
         super(localDirectory);
         this.localDirectory = localDirectory;
         this.remoteDirectory = remoteDirectory;
         this.fileCache = fileCache;
     }
 
+    /**
+     * Returns names of all files stored in this directory in sorted order
+     * Does not include locally stored block files (having _block_ in their names)
+     *
+     * @throws IOException in case of I/O error
+     */
     @Override
     public String[] listAll() throws IOException {
         logger.trace("listAll() called ...");
@@ -72,6 +92,12 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Removes an existing file in the directory.
+     * Throws {@link NoSuchFileException} or {@link FileNotFoundException} in case file is not present locally and in remote as well
+     * @param name the name of an existing file.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public void deleteFile(String name) throws IOException {
         logger.trace("deleteFile() called {}", name);
@@ -79,18 +105,24 @@ public class CompositeDirectory extends FilterDirectory {
         try {
             localDirectory.deleteFile(name);
             fileCache.remove(localDirectory.getDirectory().resolve(name));
-        } catch (NoSuchFileException e) {
-            /**
-             * We might encounter NoSuchFileException in case file is deleted from local
-             * But if it is present in remote we should just skip deleting this file
-             * TODO : Handle cases where file is not present in remote as well
-             */
-            logger.trace("NoSuchFileException encountered while deleting {} from local", name);
+        } catch (NoSuchFileException | FileNotFoundException e) {
+            logger.trace("File {} not found in local, trying to delete from Remote", name);
+            try {
+                remoteDirectory.deleteFile(name);
+            } finally {
+                writeLock.unlock();
+            }
         } finally {
             writeLock.unlock();
         }
     }
 
+    /**
+     * Returns the byte length of a file in the directory.
+     * Throws {@link NoSuchFileException} or {@link FileNotFoundException} in case file is not present locally and in remote as well
+     * @param name the name of an existing file.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public long fileLength(String name) throws IOException {
         logger.trace("fileLength() called {}", name);
@@ -110,6 +142,12 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Creates a new, empty file in the directory and returns an {@link IndexOutput} instance for
+     * appending data to this file.
+     * @param name the name of the file to create.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public IndexOutput createOutput(String name, IOContext context) throws IOException {
         logger.trace("createOutput() called {}", name);
@@ -121,6 +159,13 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Creates a new, empty, temporary file in the directory and returns an {@link IndexOutput}
+     * instance for appending data to this file.
+     *
+     * <p>The temporary file name (accessible via {@link IndexOutput#getName()}) will start with
+     * {@code prefix}, end with {@code suffix} and have a reserved file extension {@code .tmp}.
+     */
     @Override
     public IndexOutput createTempOutput(String prefix, String suffix, IOContext context) throws IOException {
         logger.trace("createTempOutput() called {} , {}", prefix, suffix);
@@ -132,6 +177,10 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Ensures that any writes to these files are moved to stable storage (made durable).
+     * @throws IOException in case of I/O error
+     */
     @Override
     public void sync(Collection<String> names) throws IOException {
         logger.trace("sync() called {}", names);
@@ -149,6 +198,10 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Ensures that directory metadata, such as recent file renames, are moved to stable storage.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public void syncMetaData() throws IOException {
         logger.trace("syncMetaData() called ");
@@ -160,6 +213,11 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Renames {@code source} file to {@code dest} file where {@code dest} must not already exist in
+     * the directory.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public void rename(String source, String dest) throws IOException {
         logger.trace("rename() called {}, {}", source, dest);
@@ -171,6 +229,12 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Opens a stream for reading an existing file.
+     * Check whether the file is present locally or in remote and return the IndexInput accordingly
+     * @param name the name of an existing file.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public IndexInput openInput(String name, IOContext context) throws IOException {
         logger.trace("openInput() called {}", name);
@@ -191,6 +255,13 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Acquires and returns a {@link Lock} for a file with the given name.
+     * @param name the name of the lock file
+     * @throws LockObtainFailedException (optional specific exception) if the lock could not be
+     * obtained because it is currently held elsewhere.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public Lock obtainLock(String name) throws IOException {
         logger.trace("obtainLock() called {}", name);
@@ -202,6 +273,10 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Closes the directory
+     * @throws IOException in case of I/O error
+     */
     @Override
     public void close() throws IOException {
         writeLock.lock();
@@ -212,6 +287,10 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Returns a set of files currently pending deletion in this directory.
+     * @throws IOException in case of I/O error
+     */
     @Override
     public Set<String> getPendingDeletions() throws IOException {
         readLock.lock();
@@ -224,9 +303,9 @@ public class CompositeDirectory extends FilterDirectory {
 
     /**
      * Function to perform operations once files have been uploaded to Remote Store
-     * Once uploaded local files are safe to delete
-     * @param files : files which have been successfully uploaded to Remote Store
-     * @throws IOException
+     * Currently deleting the local files here, as once uploaded to Remote, local files are safe to delete
+     * @param files : recent files which have been successfully uploaded to Remote Store
+     * @throws IOException in case of I/O error
      */
     public void afterSyncToRemote(Collection<String> files) throws IOException {
         logger.trace("afterSyncToRemote called for {}", files);
@@ -244,6 +323,9 @@ public class CompositeDirectory extends FilterDirectory {
         }
     }
 
+    /**
+     * Return the list of files present in Remote
+     */
     private String[] getRemoteFiles() {
         String[] remoteFiles;
         try {

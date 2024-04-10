@@ -1642,8 +1642,8 @@ public class MetadataCreateIndexService {
     }
 
     public static void validateIndexStoreLocality(Settings indexSettings) {
-        if (indexSettings.get(IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(), IndexModule.LocalityType.FULL.toString())
-            .equalsIgnoreCase(IndexModule.LocalityType.PARTIAL.toString())
+        if (indexSettings.get(IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(), IndexModule.DataLocalityType.FULL.toString())
+            .equalsIgnoreCase(IndexModule.DataLocalityType.PARTIAL.toString())
             && !FeatureFlags.isEnabled(FeatureFlags.WRITEABLE_REMOTE_INDEX_SETTING)) {
             throw new IllegalArgumentException(
                 "index.store.locality can be set to PARTIAL only if Feature Flag for Writable Remote Index is true"

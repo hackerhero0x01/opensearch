@@ -918,8 +918,10 @@ public final class IndexSettings {
         numberOfShards = settings.getAsInt(IndexMetadata.SETTING_NUMBER_OF_SHARDS, null);
         replicationType = IndexMetadata.INDEX_REPLICATION_TYPE_SETTING.get(settings);
         isRemoteStoreEnabled = settings.getAsBoolean(IndexMetadata.SETTING_REMOTE_STORE_ENABLED, false);
-        isStoreLocalityPartial = settings.get(IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(), IndexModule.LocalityType.FULL.toString())
-            .equalsIgnoreCase(IndexModule.LocalityType.PARTIAL.toString());
+        isStoreLocalityPartial = settings.get(
+            IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(),
+            IndexModule.DataLocalityType.FULL.toString()
+        ).equalsIgnoreCase(IndexModule.DataLocalityType.PARTIAL.toString());
         remoteStoreTranslogRepository = settings.get(IndexMetadata.SETTING_REMOTE_TRANSLOG_STORE_REPOSITORY);
         remoteTranslogUploadBufferInterval = INDEX_REMOTE_TRANSLOG_BUFFER_INTERVAL_SETTING.get(settings);
         remoteStoreRepository = settings.get(IndexMetadata.SETTING_REMOTE_SEGMENT_STORE_REPOSITORY);

@@ -93,9 +93,8 @@ import org.opensearch.index.shard.ShardNotFoundException;
 import org.opensearch.index.shard.ShardNotInPrimaryModeException;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.index.similarity.SimilarityService;
-import org.opensearch.index.store.BaseRemoteSegmentStoreDirectory;
 import org.opensearch.index.store.CompositeDirectory;
-import org.opensearch.index.store.FsDirectoryFactory;
+import org.opensearch.index.store.RemoteSegmentStoreDirectory;
 import org.opensearch.index.store.RemoteSegmentStoreDirectoryFactory;
 import org.opensearch.index.store.Store;
 import org.opensearch.index.store.remote.filecache.FileCache;
@@ -536,14 +535,9 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                  * Composite Directory currently uses FSDirectory's getDirectory() method to fetch and use the Path for operating on FileCache
                  * TODO : Refactor FileCache to have key in form of String instead of Path. Once that is done we can remove this assertion
                  */
-                assert directoryFactory instanceof FsDirectoryFactory
-                    : "For Composite Directory, local directory must be of type FSDirectory";
                 Directory localDirectory = directoryFactory.newDirectory(this.indexSettings, path);
-                directory = new CompositeDirectory(
-                    (FSDirectory) localDirectory,
-                    (BaseRemoteSegmentStoreDirectory) remoteDirectory,
-                    fileCache
-                );
+                assert localDirectory instanceof FSDirectory : "For Composite Directory, local directory must be of type FSDirectory";
+                directory = new CompositeDirectory((FSDirectory) localDirectory, (RemoteSegmentStoreDirectory) remoteDirectory, fileCache);
             } else {
                 directory = directoryFactory.newDirectory(this.indexSettings, path);
             }

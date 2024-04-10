@@ -146,10 +146,10 @@ public final class IndexModule {
     /**
      * Index setting which used to determine how the data is cached locally fully or partially
      */
-    public static final Setting<LocalityType> INDEX_STORE_LOCALITY_SETTING = new Setting<>(
-        "index.store.locality",
-        LocalityType.FULL.name(),
-        LocalityType::getValueOf,
+    public static final Setting<DataLocalityType> INDEX_STORE_LOCALITY_SETTING = new Setting<>(
+        "index.store.data_locality",
+        DataLocalityType.FULL.name(),
+        DataLocalityType::getValueOf,
         Property.IndexScope,
         Property.NodeScope
     );
@@ -593,24 +593,33 @@ public final class IndexModule {
         }
     }
 
-    public enum LocalityType {
+    /**
+     * Indicates the locality of the data - whether it will be cached fully or partially
+     */
+    public enum DataLocalityType {
+        /**
+         * Indicates that all the data will be cached locally
+         */
         FULL,
+        /**
+         * Indicates that only a subset of the data will be cached locally
+         */
         PARTIAL;
 
-        private static final Map<String, LocalityType> LOCALITY_TYPES;
+        private static final Map<String, DataLocalityType> LOCALITY_TYPES;
 
         static {
-            final Map<String, LocalityType> localityTypes = new HashMap<>(values().length);
-            for (final LocalityType localityType : values()) {
-                localityTypes.put(localityType.name(), localityType);
+            final Map<String, DataLocalityType> localityTypes = new HashMap<>(values().length);
+            for (final DataLocalityType dataLocalityType : values()) {
+                localityTypes.put(dataLocalityType.name(), dataLocalityType);
             }
             LOCALITY_TYPES = Collections.unmodifiableMap(localityTypes);
         }
 
-        public static LocalityType getValueOf(final String localityType) {
+        public static DataLocalityType getValueOf(final String localityType) {
             Objects.requireNonNull(localityType, "No locality type given.");
             final String localityTypeName = toRootUpperCase(localityType.trim());
-            final LocalityType type = LOCALITY_TYPES.get(localityTypeName);
+            final DataLocalityType type = LOCALITY_TYPES.get(localityTypeName);
             if (type != null) {
                 return type;
             }
