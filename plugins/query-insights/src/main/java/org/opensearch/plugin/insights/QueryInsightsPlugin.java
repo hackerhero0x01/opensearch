@@ -38,7 +38,6 @@ import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
 import org.opensearch.rest.RestHandler;
 import org.opensearch.script.ScriptService;
-import org.opensearch.tasks.TaskResourceTrackingService;
 import org.opensearch.threadpool.ExecutorBuilder;
 import org.opensearch.threadpool.ScalingExecutorBuilder;
 import org.opensearch.threadpool.ThreadPool;
@@ -69,15 +68,14 @@ public class QueryInsightsPlugin extends Plugin implements ActionPlugin {
         final NodeEnvironment nodeEnvironment,
         final NamedWriteableRegistry namedWriteableRegistry,
         final IndexNameExpressionResolver indexNameExpressionResolver,
-        final Supplier<RepositoriesService> repositoriesServiceSupplier,
-        final TaskResourceTrackingService taskResourceTrackingService
+        final Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
         // create top n queries service
         final QueryInsightsService queryInsightsService = new QueryInsightsService(threadPool);
         return List.of(
             queryInsightsService,
             new QueryInsightsListener(clusterService, queryInsightsService),
-            new ResourceTrackingListener(queryInsightsService, taskResourceTrackingService)
+            new ResourceTrackingListener(queryInsightsService, clusterService.getTaskResourceTrackingService())
         );
     }
 

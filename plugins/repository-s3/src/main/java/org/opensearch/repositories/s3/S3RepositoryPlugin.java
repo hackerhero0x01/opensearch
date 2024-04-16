@@ -54,7 +54,6 @@ import org.opensearch.repositories.s3.async.AsyncExecutorContainer;
 import org.opensearch.repositories.s3.async.AsyncTransferEventLoopGroup;
 import org.opensearch.repositories.s3.async.AsyncTransferManager;
 import org.opensearch.script.ScriptService;
-import org.opensearch.tasks.TaskResourceTrackingService;
 import org.opensearch.threadpool.ExecutorBuilder;
 import org.opensearch.threadpool.FixedExecutorBuilder;
 import org.opensearch.threadpool.ScalingExecutorBuilder;
@@ -170,8 +169,7 @@ public class S3RepositoryPlugin extends Plugin implements RepositoryPlugin, Relo
         final NodeEnvironment nodeEnvironment,
         final NamedWriteableRegistry namedWriteableRegistry,
         final IndexNameExpressionResolver expressionResolver,
-        final Supplier<RepositoriesService> repositoriesServiceSupplier,
-        final TaskResourceTrackingService taskResourceTrackingService
+        final Supplier<RepositoriesService> repositoriesServiceSupplier
     ) {
         int urgentEventLoopThreads = urgentPoolCount(clusterService.getSettings());
         int priorityEventLoopThreads = priorityPoolCount(clusterService.getSettings());
