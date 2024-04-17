@@ -37,18 +37,23 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.lucene.util.BytesRef;
 import org.opensearch.OpenSearchException;
 import org.opensearch.Version;
+import org.opensearch.common.SuppressForbidden;
 import org.opensearch.common.bytes.ReleasableBytesReference;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.BigArrays;
+import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.common.bytes.BytesArray;
 import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.common.io.stream.InputStreamStreamInput;
 import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.common.io.stream.StreamInput;
+import org.opensearch.search.fetch.FetchSearchResult;
+import org.opensearch.search.fetch.QueryFetchSearchResult;
+import org.opensearch.search.query.QuerySearchResult;
 import org.opensearch.tasks.TaskManager;
 import org.opensearch.telemetry.tracing.noop.NoopTracer;
 import org.opensearch.test.MockLogAppender;
@@ -56,9 +61,11 @@ import org.opensearch.test.OpenSearchTestCase;
 import org.opensearch.test.VersionUtils;
 import org.opensearch.threadpool.TestThreadPool;
 import org.opensearch.threadpool.ThreadPool;
+import org.opensearch.transport.protobufprotocol.ProtobufInboundMessage;
 import org.junit.After;
 import org.junit.Before;
 
+import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -80,6 +87,9 @@ public class InboundHandlerTests extends OpenSearchTestCase {
     private final Version version = Version.CURRENT;
 
     private TaskManager taskManager;
+    private NamedWriteableRegistry namedWriteableRegistry;
+    private TransportHandshaker handshaker;
+    private TransportKeepAlive keepAlive;
     private Transport.ResponseHandlers responseHandlers;
     private Transport.RequestHandlers requestHandlers;
     private InboundHandler handler;
@@ -98,8 +108,8 @@ public class InboundHandlerTests extends OpenSearchTestCase {
                 }
             }
         };
-        NamedWriteableRegistry namedWriteableRegistry = new NamedWriteableRegistry(Collections.emptyList());
-        TransportHandshaker handshaker = new TransportHandshaker(version, threadPool, (n, c, r, v) -> {});
+        namedWriteableRegistry = new NamedWriteableRegistry(Collections.emptyList());
+        handshaker = new TransportHandshaker(version, threadPool, (n, c, r, v) -> {});
         outboundHandler = new OutboundHandler(
             "node",
             version,
@@ -108,7 +118,7 @@ public class InboundHandlerTests extends OpenSearchTestCase {
             threadPool,
             BigArrays.NON_RECYCLING_INSTANCE
         );
-        TransportKeepAlive keepAlive = new TransportKeepAlive(threadPool, outboundHandler::sendBytes);
+        keepAlive = new TransportKeepAlive(threadPool, outboundHandler::sendBytes);
         requestHandlers = new Transport.RequestHandlers();
         responseHandlers = new Transport.ResponseHandlers();
         handler = new InboundHandler(
@@ -240,6 +250,104 @@ public class InboundHandlerTests extends OpenSearchTestCase {
         } else {
             assertEquals(responseValue, responseCaptor.get().value);
         }
+    }
+
+    @SuppressForbidden(reason = "manipulates system properties for testing")
+    public void testProtobufResponse() throws Exception {
+        System.setProperty(FeatureFlags.PROTOBUF_SETTING.getKey(), "true");
+        InboundHandler inboundHandler = new InboundHandler(
+            threadPool,
+            outboundHandler,
+            namedWriteableRegistry,
+            handshaker,
+            keepAlive,
+            requestHandlers,
+            responseHandlers,
+            NoopTracer.INSTANCE
+        );
+        String action = "test-request";
+        int headerSize = TcpHeader.headerSize(version);
+        AtomicReference<TestRequest> requestCaptor = new AtomicReference<>();
+        AtomicReference<Exception> exceptionCaptor = new AtomicReference<>();
+        AtomicReference<QueryFetchSearchResult> responseCaptor = new AtomicReference<>();
+        AtomicReference<TransportChannel> channelCaptor = new AtomicReference<>();
+
+        long requestId = responseHandlers.add(new Transport.ResponseContext<>(new TransportResponseHandler<QueryFetchSearchResult>() {
+            @Override
+            public void handleResponse(QueryFetchSearchResult response) {
+                responseCaptor.set(response);
+            }
+
+            @Override
+            public void handleException(TransportException exp) {
+                exceptionCaptor.set(exp);
+            }
+
+            @Override
+            public String executor() {
+                return ThreadPool.Names.SAME;
+            }
+
+            @Override
+            public QueryFetchSearchResult read(StreamInput in) throws IOException {
+                throw new UnsupportedOperationException("Unimplemented method 'read'");
+            }
+
+            @Override
+            public QueryFetchSearchResult read(InputStream in) throws IOException {
+                return new QueryFetchSearchResult(in);
+            }
+        }, null, action));
+        RequestHandlerRegistry<TestRequest> registry = new RequestHandlerRegistry<>(
+            action,
+            TestRequest::new,
+            taskManager,
+            (request, channel, task) -> {
+                channelCaptor.set(channel);
+                requestCaptor.set(request);
+            },
+            ThreadPool.Names.SAME,
+            false,
+            true
+        );
+        requestHandlers.registerHandler(registry);
+        String requestValue = randomAlphaOfLength(10);
+        OutboundMessage.Request request = new OutboundMessage.Request(
+            threadPool.getThreadContext(),
+            new String[0],
+            new TestRequest(requestValue),
+            version,
+            action,
+            requestId,
+            false,
+            false
+        );
+
+        BytesReference fullRequestBytes = request.serialize(new BytesStreamOutput());
+        BytesReference requestContent = fullRequestBytes.slice(headerSize, fullRequestBytes.length() - headerSize);
+        Header requestHeader = new Header(fullRequestBytes.length() - 6, requestId, TransportStatus.setRequest((byte) 0), version);
+        InboundMessage requestMessage = new InboundMessage(requestHeader, ReleasableBytesReference.wrap(requestContent), () -> {});
+        requestHeader.finishParsingHeader(requestMessage.openOrGetStreamInput());
+        inboundHandler.inboundMessage(channel, requestMessage);
+
+        TransportChannel transportChannel = channelCaptor.get();
+        assertEquals(Version.CURRENT, transportChannel.getVersion());
+        assertEquals("transport", transportChannel.getChannelType());
+        assertEquals(requestValue, requestCaptor.get().value);
+
+        QuerySearchResult queryResult = OutboundHandlerTests.createQuerySearchResult();
+        FetchSearchResult fetchResult = OutboundHandlerTests.createFetchSearchResult();
+        QueryFetchSearchResult response = new QueryFetchSearchResult(queryResult, fetchResult);
+        transportChannel.sendResponse(response);
+
+        BytesReference fullResponseBytes = channel.getMessageCaptor().get();
+        byte[] incomingBytes = BytesReference.toBytes(fullResponseBytes.slice(3, fullResponseBytes.length() - 3));
+        ProtobufInboundMessage nodeToNodeMessage = new ProtobufInboundMessage(new ByteArrayInputStream(incomingBytes));
+        inboundHandler.inboundMessage(channel, nodeToNodeMessage);
+        QueryFetchSearchResult result = responseCaptor.get();
+        assertNotNull(result);
+        assertEquals(queryResult.getMaxScore(), result.queryResult().getMaxScore(), 0.0);
+        System.setProperty(FeatureFlags.PROTOBUF, "false");
     }
 
     public void testSendsErrorResponseToHandshakeFromCompatibleVersion() throws Exception {

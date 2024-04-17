@@ -36,9 +36,11 @@ import org.opensearch.Version;
 import org.opensearch.common.bytes.ReleasableBytesReference;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
+import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.common.util.PageCacheRecycler;
 import org.opensearch.core.common.breaker.CircuitBreaker;
 import org.opensearch.transport.nativeprotocol.NativeInboundBytesHandler;
+import org.opensearch.transport.protobufprotocol.ProtobufInboundBytesHandler;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -95,7 +97,14 @@ public class InboundPipeline implements Releasable {
         this.statsTracker = statsTracker;
         this.decoder = decoder;
         this.aggregator = aggregator;
-        this.protocolBytesHandlers = List.of(new NativeInboundBytesHandler(pending, decoder, aggregator, statsTracker));
+        if (FeatureFlags.isEnabled(FeatureFlags.PROTOBUF_SETTING)) {
+            this.protocolBytesHandlers = List.of(
+                new ProtobufInboundBytesHandler(),
+                new NativeInboundBytesHandler(pending, decoder, aggregator, statsTracker)
+            );
+        } else {
+            this.protocolBytesHandlers = List.of(new NativeInboundBytesHandler(pending, decoder, aggregator, statsTracker));
+        }
         this.messageHandler = messageHandler;
     }
 

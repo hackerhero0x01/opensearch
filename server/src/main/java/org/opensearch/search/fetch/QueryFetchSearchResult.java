@@ -32,14 +32,19 @@
 
 package org.opensearch.search.fetch;
 
+import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.search.SearchPhaseResult;
 import org.opensearch.search.SearchShardTarget;
 import org.opensearch.search.internal.ShardSearchContextId;
 import org.opensearch.search.query.QuerySearchResult;
+import org.opensearch.server.proto.QueryFetchSearchResultProto;
+import org.opensearch.transport.nativeprotocol.NativeInboundMessage;
+import org.opensearch.transport.protobufprotocol.ProtobufInboundMessage;
 
 import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Query fetch result
@@ -51,8 +56,17 @@ public final class QueryFetchSearchResult extends SearchPhaseResult {
     private final QuerySearchResult queryResult;
     private final FetchSearchResult fetchResult;
 
+    private QueryFetchSearchResultProto.QueryFetchSearchResult queryFetchSearchResultProto;
+
     public QueryFetchSearchResult(StreamInput in) throws IOException {
         super(in);
+        queryResult = new QuerySearchResult(in);
+        fetchResult = new FetchSearchResult(in);
+    }
+
+    public QueryFetchSearchResult(InputStream in) throws IOException {
+        super(in);
+        this.queryFetchSearchResultProto = QueryFetchSearchResultProto.QueryFetchSearchResult.parseFrom(in);
         queryResult = new QuerySearchResult(in);
         fetchResult = new FetchSearchResult(in);
     }
@@ -60,6 +74,12 @@ public final class QueryFetchSearchResult extends SearchPhaseResult {
     public QueryFetchSearchResult(QuerySearchResult queryResult, FetchSearchResult fetchResult) {
         this.queryResult = queryResult;
         this.fetchResult = fetchResult;
+        if (queryResult.response() != null && fetchResult.response() != null) {
+            this.queryFetchSearchResultProto = QueryFetchSearchResultProto.QueryFetchSearchResult.newBuilder()
+                .setQueryResult(queryResult.response())
+                .setFetchResult(fetchResult.response())
+                .build();
+        }
     }
 
     @Override
@@ -101,4 +121,23 @@ public final class QueryFetchSearchResult extends SearchPhaseResult {
         queryResult.writeTo(out);
         fetchResult.writeTo(out);
     }
+
+    @Override
+    public String getProtocol() {
+        if (FeatureFlags.isEnabled(FeatureFlags.PROTOBUF_SETTING)) {
+            return ProtobufInboundMessage.PROTOBUF_PROTOCOL;
+        }
+        return NativeInboundMessage.NATIVE_PROTOCOL;
+    }
+
+    public QueryFetchSearchResultProto.QueryFetchSearchResult response() {
+        return this.queryFetchSearchResultProto;
+    }
+
+    public QueryFetchSearchResult(QueryFetchSearchResultProto.QueryFetchSearchResult queryFetchSearchResult) {
+        this.queryFetchSearchResultProto = queryFetchSearchResult;
+        this.queryResult = new QuerySearchResult(queryFetchSearchResult.getQueryResult());
+        this.fetchResult = new FetchSearchResult(queryFetchSearchResult.getFetchResult());
+    }
+
 }

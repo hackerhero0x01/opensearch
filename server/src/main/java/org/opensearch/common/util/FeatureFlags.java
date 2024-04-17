@@ -62,6 +62,11 @@ public class FeatureFlags {
     public static final String WRITEABLE_REMOTE_INDEX = "opensearch.experimental.feature.writeable_remote_index.enabled";
 
     /**
+     * Gates the functionality of integrating protobuf within search API and node-to-node communication.
+     */
+    public static final String PROTOBUF = "opensearch.experimental.feature.search_with_protobuf.enabled";
+
+    /**
      * Gates the functionality of pluggable cache.
      * Enables OpenSearch to use pluggable caches with respective store names via setting.
      */
@@ -93,6 +98,8 @@ public class FeatureFlags {
 
     public static final Setting<Boolean> PLUGGABLE_CACHE_SETTING = Setting.boolSetting(PLUGGABLE_CACHE, false, Property.NodeScope);
 
+    public static final Setting<Boolean> PROTOBUF_SETTING = Setting.boolSetting(PROTOBUF, false, Property.NodeScope, Property.Dynamic);
+
     private static final List<Setting<Boolean>> ALL_FEATURE_FLAG_SETTINGS = List.of(
         REMOTE_STORE_MIGRATION_EXPERIMENTAL_SETTING,
         EXTENSIONS_SETTING,
@@ -100,7 +107,8 @@ public class FeatureFlags {
         TELEMETRY_SETTING,
         DATETIME_FORMATTER_CACHING_SETTING,
         WRITEABLE_REMOTE_INDEX_SETTING,
-        PLUGGABLE_CACHE_SETTING
+        PLUGGABLE_CACHE_SETTING,
+        PROTOBUF_SETTING
     );
     /**
      * Should store the settings from opensearch.yml.
