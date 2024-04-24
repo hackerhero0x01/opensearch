@@ -35,6 +35,7 @@ package org.opensearch.action.search;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.tasks.TaskId;
+import org.opensearch.search.resource_limit_group.ResourceLimitGroupTask;
 import org.opensearch.tasks.CancellableTask;
 import org.opensearch.tasks.SearchBackpressureTask;
 
@@ -49,10 +50,11 @@ import static org.opensearch.search.SearchService.NO_TIMEOUT;
  * @opensearch.api
  */
 @PublicApi(since = "1.0.0")
-public class SearchTask extends CancellableTask implements SearchBackpressureTask {
+public class SearchTask extends CancellableTask implements SearchBackpressureTask, ResourceLimitGroupTask {
     // generating description in a lazy way since source can be quite big
     private final Supplier<String> descriptionSupplier;
     private SearchProgressListener progressListener = SearchProgressListener.NOOP;
+    private String resourceLimitGroupId;
 
     public SearchTask(
         long id,
@@ -105,5 +107,13 @@ public class SearchTask extends CancellableTask implements SearchBackpressureTas
     @Override
     public boolean shouldCancelChildrenOnCancellation() {
         return true;
+    }
+
+    public String getResourceLimitGroupName() {
+        return resourceLimitGroupId;
+    }
+
+    public void setResourceLimitGroupName(String resourceLimitGroupId) {
+        this.resourceLimitGroupId = resourceLimitGroupId;
     }
 }
