@@ -43,7 +43,9 @@ public enum Attribute {
     /**
      * The node id for this request
      */
-    NODE_ID;
+    NODE_ID,
+    USER_NAME,
+    CUSTOMIZED_TAG;
 
     /**
      * Read an Attribute from a StreamInput

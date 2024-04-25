@@ -57,6 +57,7 @@ import org.opensearch.cluster.routing.ShardIterator;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.inject.Inject;
+import org.opensearch.search.labels.RuleBasedLabelingService;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.unit.TimeValue;
