@@ -121,10 +121,9 @@ import java.util.stream.LongStream;
 import org.mockito.Mockito;
 
 import static java.util.stream.Collectors.toList;
-import static org.opensearch.common.lucene.search.Queries.newNonNestedFilter;
 import static org.opensearch.search.aggregations.AggregationBuilders.max;
 import static org.opensearch.search.aggregations.AggregationBuilders.nested;
-import static org.opensearch.search.aggregations.bucket.nested.NestedAggregator.getChildAndRootParent;
+import static org.opensearch.search.aggregations.bucket.nested.NestedAggregator.getChildAndParentId;
 import static org.opensearch.test.InternalAggregationTestCase.DEFAULT_MAX_BUCKETS;
 import static org.hamcrest.Matchers.equalTo;
 import static org.mockito.ArgumentMatchers.any;
@@ -136,7 +135,6 @@ public class NestedAggregatorTests extends AggregatorTestCase {
 
     private static final String VALUE_FIELD_NAME = "number";
     private static final String VALUE_FIELD_NAME2 = "number2";
-
     private static final String NESTED_OBJECT = "nested_object";
     private static final String NESTED_OBJECT2 = "nested_object2";
     private static final String NESTED_AGG = "nestedAgg";
@@ -147,6 +145,7 @@ public class NestedAggregatorTests extends AggregatorTestCase {
     private static final String OUT_TERMS = "outTerms";
     private static final String INNER_NESTED = "innerNested";
     private static final String INNER_TERMS = "innerTerms";
+
     private static final SeqNoFieldMapper.SequenceIDFields sequenceIDFields = SeqNoFieldMapper.SequenceIDFields.emptySeqID();
 
     /**
@@ -436,7 +435,7 @@ public class NestedAggregatorTests extends AggregatorTestCase {
                 MappedFieldType fieldType = new NumberFieldMapper.NumberFieldType(VALUE_FIELD_NAME, NumberFieldMapper.NumberType.LONG);
 
                 BooleanQuery.Builder bq = new BooleanQuery.Builder();
-                bq.add(newNonNestedFilter(), BooleanClause.Occur.MUST);
+                bq.add(Queries.newNonNestedFilter(), BooleanClause.Occur.MUST);
                 bq.add(new TermQuery(new Term(IdFieldMapper.NAME, Uid.encodeId("2"))), BooleanClause.Occur.MUST_NOT);
 
                 InternalNested nested = searchAndReduce(
@@ -728,7 +727,7 @@ public class NestedAggregatorTests extends AggregatorTestCase {
 
                 Filter filter = searchAndReduce(
                     newSearcher(indexReader, false, true),
-                    newNonNestedFilter(),
+                    Queries.newNonNestedFilter(),
                     filterAggregationBuilder,
                     fieldType1,
                     fieldType2
@@ -1063,19 +1062,19 @@ public class NestedAggregatorTests extends AggregatorTestCase {
             parentDocs.set(6);
             parentDocs.set(8);
             DocIdSetIterator childDocs = getDocIdSetIterator(new int[] { 2, 4 });
-            Tuple<Integer, Integer> res = getChildAndRootParent(parentDocs, childDocs, 0);
+            Tuple<Integer, Integer> res = getChildAndParentId(parentDocs, childDocs, 0);
             assertEquals(0, res.v1().intValue());
             assertEquals(2, res.v2().intValue());
 
-            res = getChildAndRootParent(parentDocs, childDocs, 3);
+            res = getChildAndParentId(parentDocs, childDocs, 3);
             assertEquals(3, res.v1().intValue());
             assertEquals(2, res.v2().intValue());
 
-            res = getChildAndRootParent(parentDocs, childDocs, 4);
+            res = getChildAndParentId(parentDocs, childDocs, 4);
             assertEquals(6, res.v1().intValue());
             assertEquals(4, res.v2().intValue());
 
-            res = getChildAndRootParent(parentDocs, childDocs, 8);
+            res = getChildAndParentId(parentDocs, childDocs, 8);
             assertEquals(8, res.v1().intValue());
             assertEquals(-1, res.v2().intValue());
         }
@@ -1089,26 +1088,26 @@ public class NestedAggregatorTests extends AggregatorTestCase {
             parentDocs.set(9);
             {
                 DocIdSetIterator childDocs = getDocIdSetIterator(new int[] { 1, 5, 7 });
-                Tuple<Integer, Integer> res = getChildAndRootParent(parentDocs, childDocs, 2);
+                Tuple<Integer, Integer> res = getChildAndParentId(parentDocs, childDocs, 2);
                 assertEquals(3, res.v1().intValue());
                 assertEquals(1, res.v2().intValue());
 
-                res = getChildAndRootParent(parentDocs, childDocs, 4);
+                res = getChildAndParentId(parentDocs, childDocs, 4);
                 assertEquals(6, res.v1().intValue());
                 assertEquals(5, res.v2().intValue());
 
-                res = getChildAndRootParent(parentDocs, childDocs, 8);
+                res = getChildAndParentId(parentDocs, childDocs, 8);
                 assertEquals(9, res.v1().intValue());
                 assertEquals(7, res.v2().intValue());
             }
 
             {
                 DocIdSetIterator childDocs = getDocIdSetIterator(new int[] { 1, 7 });
-                Tuple<Integer, Integer> res = getChildAndRootParent(parentDocs, childDocs, 2);
+                Tuple<Integer, Integer> res = getChildAndParentId(parentDocs, childDocs, 2);
                 assertEquals(3, res.v1().intValue());
                 assertEquals(1, res.v2().intValue());
 
-                res = getChildAndRootParent(parentDocs, childDocs, 8);
+                res = getChildAndParentId(parentDocs, childDocs, 8);
                 assertEquals(9, res.v1().intValue());
                 assertEquals(7, res.v2().intValue());
             }

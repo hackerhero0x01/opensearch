@@ -128,11 +128,11 @@ public class NestedAggregator extends BucketsAggregator implements SingleBucketA
                         return;
                     }
 
-                    Tuple<Integer, Integer> res = getChildAndRootParent(parentDocs, childDocs, parentDoc);
-                    int currentRootDoc = res.v1();
+                    Tuple<Integer, Integer> res = getChildAndParentId(parentDocs, childDocs, parentDoc);
+                    int currentParentDoc = res.v1();
                     int childDocId = res.v2();
 
-                    for (; childDocId < currentRootDoc; childDocId = childDocs.nextDoc()) {
+                    for (; childDocId < currentParentDoc; childDocId = childDocs.nextDoc()) {
                         collectBucket(sub, childDocId, bucket);
                     }
                 }
@@ -142,27 +142,27 @@ public class NestedAggregator extends BucketsAggregator implements SingleBucketA
         }
     }
 
-    static Tuple<Integer, Integer> getChildAndRootParent(BitSet parentDocs, DocIdSetIterator childDocs, int parentDoc) throws IOException {
-        int currentRootDoc;
+    static Tuple<Integer, Integer> getChildAndParentId(BitSet parentDocs, DocIdSetIterator childDocs, int parentDoc) throws IOException {
+        int currentParentDoc;
         int prevParentDoc = parentDocs.prevSetBit(parentDoc);
         if (prevParentDoc == -1) {
-            currentRootDoc = parentDocs.nextSetBit(0);
+            currentParentDoc = parentDocs.nextSetBit(0);
         } else if (prevParentDoc == parentDoc) {
-            currentRootDoc = parentDoc;
-            if (currentRootDoc == 0) {
+            currentParentDoc = parentDoc;
+            if (currentParentDoc == 0) {
                 prevParentDoc = -1;
             } else {
-                prevParentDoc = parentDocs.prevSetBit(currentRootDoc - 1);
+                prevParentDoc = parentDocs.prevSetBit(currentParentDoc - 1);
             }
         } else {
-            currentRootDoc = parentDocs.nextSetBit(prevParentDoc + 1);
+            currentParentDoc = parentDocs.nextSetBit(prevParentDoc + 1);
         }
 
         int childDocId = childDocs.docID();
         if (childDocId <= prevParentDoc) {
             childDocId = childDocs.advance(prevParentDoc + 1);
         }
-        return Tuple.tuple(currentRootDoc, childDocId);
+        return Tuple.tuple(currentParentDoc, childDocId);
     }
 
     @Override
@@ -248,11 +248,11 @@ public class NestedAggregator extends BucketsAggregator implements SingleBucketA
                 return;
             }
 
-            Tuple<Integer, Integer> res = getChildAndRootParent(parentDocs, childDocs, currentParentDoc);
-            int currentRootDoc = res.v1();
+            Tuple<Integer, Integer> res = getChildAndParentId(parentDocs, childDocs, currentParentDoc);
+            int currentParentDoc = res.v1();
             int childDocId = res.v2();
 
-            for (; childDocId < currentRootDoc; childDocId = childDocs.nextDoc()) {
+            for (; childDocId < currentParentDoc; childDocId = childDocs.nextDoc()) {
                 cachedScorer.doc = childDocId;
                 for (var bucket : bucketBuffer) {
                     collectBucket(sub, childDocId, bucket);
