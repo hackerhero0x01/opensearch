@@ -890,6 +890,13 @@ public class Node implements Closeable {
 
             final ViewService viewService = new ViewService(clusterService, client, null);
 
+            final TaskResourceTrackingService taskResourceTrackingService = new TaskResourceTrackingService(
+                settings,
+                clusterService.getClusterSettings(),
+                threadPool
+            );
+            clusterService.setTaskResourceTrackingService(taskResourceTrackingService);
+
             Collection<Object> pluginComponents = pluginsService.filterPlugins(Plugin.class)
                 .stream()
                 .flatMap(
@@ -1041,12 +1048,6 @@ public class Node implements Closeable {
             // Going forward, IndexingPressureService will have required constructs for exposing listeners/interfaces for plugin
             // development. Then we can deprecate Getter and Setter for IndexingPressureService in ClusterService (#478).
             clusterService.setIndexingPressureService(indexingPressureService);
-
-            final TaskResourceTrackingService taskResourceTrackingService = new TaskResourceTrackingService(
-                settings,
-                clusterService.getClusterSettings(),
-                threadPool
-            );
 
             final SearchBackpressureSettings searchBackpressureSettings = new SearchBackpressureSettings(
                 settings,

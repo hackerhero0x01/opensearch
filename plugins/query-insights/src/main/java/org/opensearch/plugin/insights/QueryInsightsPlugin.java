@@ -26,6 +26,7 @@ import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugin.insights.core.listener.QueryInsightsListener;
+import org.opensearch.plugin.insights.core.listener.ResourceTrackingListener;
 import org.opensearch.plugin.insights.core.service.QueryInsightsService;
 import org.opensearch.plugin.insights.rules.action.top_queries.TopQueriesAction;
 import org.opensearch.plugin.insights.rules.resthandler.top_queries.RestTopQueriesAction;
@@ -71,7 +72,11 @@ public class QueryInsightsPlugin extends Plugin implements ActionPlugin {
     ) {
         // create top n queries service
         final QueryInsightsService queryInsightsService = new QueryInsightsService(threadPool);
-        return List.of(queryInsightsService, new QueryInsightsListener(clusterService, queryInsightsService));
+        return List.of(
+            queryInsightsService,
+            new QueryInsightsListener(clusterService, queryInsightsService),
+            new ResourceTrackingListener(queryInsightsService, clusterService.getTaskResourceTrackingService())
+        );
     }
 
     @Override
