@@ -29,12 +29,35 @@ import static org.opensearch.search.backpressure.trackers.TaskResourceUsageTrack
  *
  * @opensearch.internal
  */
-public class CpuUsageTracker extends TaskResourceUsageTracker {
+public class CpuUsageTracker extends TaskResourceUsageTrackers.TaskResourceUsageTracker {
 
     private final LongSupplier thresholdSupplier;
 
     public CpuUsageTracker(LongSupplier thresholdSupplier) {
+        this(thresholdSupplier, (task) -> {
+            long usage = task.getTotalResourceStats().getCpuTimeInNanos();
+            long threshold = thresholdSupplier.getAsLong();
+
+            if (usage < threshold) {
+                return Optional.empty();
+            }
+
+            return Optional.of(
+                new TaskCancellation.Reason(
+                    "cpu usage exceeded ["
+                        + new TimeValue(usage, TimeUnit.NANOSECONDS)
+                        + " >= "
+                        + new TimeValue(threshold, TimeUnit.NANOSECONDS)
+                        + "]",
+                    1  // TODO: fine-tune the cancellation score/weight
+                )
+            );
+        });
+    }
+
+    public CpuUsageTracker(LongSupplier thresholdSupplier, ResourceUsageBreachEvaluator resourceUsageBreachEvaluator) {
         this.thresholdSupplier = thresholdSupplier;
+        this.resourceUsageBreachEvaluator = resourceUsageBreachEvaluator;
     }
 
     @Override
@@ -43,28 +66,7 @@ public class CpuUsageTracker extends TaskResourceUsageTracker {
     }
 
     @Override
-    public Optional<TaskCancellation.Reason> checkAndMaybeGetCancellationReason(Task task) {
-        long usage = task.getTotalResourceStats().getCpuTimeInNanos();
-        long threshold = thresholdSupplier.getAsLong();
-
-        if (usage < threshold) {
-            return Optional.empty();
-        }
-
-        return Optional.of(
-            new TaskCancellation.Reason(
-                "cpu usage exceeded ["
-                    + new TimeValue(usage, TimeUnit.NANOSECONDS)
-                    + " >= "
-                    + new TimeValue(threshold, TimeUnit.NANOSECONDS)
-                    + "]",
-                1  // TODO: fine-tune the cancellation score/weight
-            )
-        );
-    }
-
-    @Override
-    public TaskResourceUsageTracker.Stats stats(List<? extends Task> activeTasks) {
+    public TaskResourceUsageTrackers.TaskResourceUsageTracker.Stats stats(List<? extends Task> activeTasks) {
         long currentMax = activeTasks.stream().mapToLong(t -> t.getTotalResourceStats().getCpuTimeInNanos()).max().orElse(0);
         long currentAvg = (long) activeTasks.stream().mapToLong(t -> t.getTotalResourceStats().getCpuTimeInNanos()).average().orElse(0);
         return new Stats(getCancellations(), currentMax, currentAvg);
@@ -73,7 +75,7 @@ public class CpuUsageTracker extends TaskResourceUsageTracker {
     /**
      * Stats related to CpuUsageTracker.
      */
-    public static class Stats implements TaskResourceUsageTracker.Stats {
+    public static class Stats implements TaskResourceUsageTrackers.TaskResourceUsageTracker.Stats {
         private final long cancellationCount;
         private final long currentMax;
         private final long currentAvg;

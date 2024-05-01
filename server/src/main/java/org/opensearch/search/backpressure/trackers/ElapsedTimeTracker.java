@@ -29,13 +29,40 @@ import static org.opensearch.search.backpressure.trackers.TaskResourceUsageTrack
  *
  * @opensearch.internal
  */
-public class ElapsedTimeTracker extends TaskResourceUsageTracker {
+public class ElapsedTimeTracker extends TaskResourceUsageTrackers.TaskResourceUsageTracker {
     private final LongSupplier thresholdSupplier;
     private final LongSupplier timeNanosSupplier;
 
     public ElapsedTimeTracker(LongSupplier thresholdSupplier, LongSupplier timeNanosSupplier) {
+        this(thresholdSupplier, timeNanosSupplier, (Task task) -> {
+            long usage = timeNanosSupplier.getAsLong() - task.getStartTimeNanos();
+            long threshold = thresholdSupplier.getAsLong();
+
+            if (usage < threshold) {
+                return Optional.empty();
+            }
+
+            return Optional.of(
+                new TaskCancellation.Reason(
+                    "elapsed time exceeded ["
+                        + new TimeValue(usage, TimeUnit.NANOSECONDS)
+                        + " >= "
+                        + new TimeValue(threshold, TimeUnit.NANOSECONDS)
+                        + "]",
+                    1  // TODO: fine-tune the cancellation score/weight
+                )
+            );
+        });
+    }
+
+    public ElapsedTimeTracker(
+        LongSupplier thresholdSupplier,
+        LongSupplier timeNanosSupplier,
+        ResourceUsageBreachEvaluator resourceUsageBreachEvaluator
+    ) {
         this.thresholdSupplier = thresholdSupplier;
         this.timeNanosSupplier = timeNanosSupplier;
+        this.resourceUsageBreachEvaluator = resourceUsageBreachEvaluator;
     }
 
     @Override
@@ -44,28 +71,7 @@ public class ElapsedTimeTracker extends TaskResourceUsageTracker {
     }
 
     @Override
-    public Optional<TaskCancellation.Reason> checkAndMaybeGetCancellationReason(Task task) {
-        long usage = timeNanosSupplier.getAsLong() - task.getStartTimeNanos();
-        long threshold = thresholdSupplier.getAsLong();
-
-        if (usage < threshold) {
-            return Optional.empty();
-        }
-
-        return Optional.of(
-            new TaskCancellation.Reason(
-                "elapsed time exceeded ["
-                    + new TimeValue(usage, TimeUnit.NANOSECONDS)
-                    + " >= "
-                    + new TimeValue(threshold, TimeUnit.NANOSECONDS)
-                    + "]",
-                1  // TODO: fine-tune the cancellation score/weight
-            )
-        );
-    }
-
-    @Override
-    public TaskResourceUsageTracker.Stats stats(List<? extends Task> activeTasks) {
+    public TaskResourceUsageTrackers.TaskResourceUsageTracker.Stats stats(List<? extends Task> activeTasks) {
         long now = timeNanosSupplier.getAsLong();
         long currentMax = activeTasks.stream().mapToLong(t -> now - t.getStartTimeNanos()).max().orElse(0);
         long currentAvg = (long) activeTasks.stream().mapToLong(t -> now - t.getStartTimeNanos()).average().orElse(0);
@@ -75,7 +81,7 @@ public class ElapsedTimeTracker extends TaskResourceUsageTracker {
     /**
      * Stats related to ElapsedTimeTracker.
      */
-    public static class Stats implements TaskResourceUsageTracker.Stats {
+    public static class Stats implements TaskResourceUsageTrackers.TaskResourceUsageTracker.Stats {
         private final long cancellationCount;
         private final long currentMax;
         private final long currentAvg;
