@@ -138,6 +138,8 @@ public final class QueryInsightsListener extends SearchRequestOperationsListener
             attributes.put(Attribute.TOTAL_SHARDS, context.getNumShards());
             attributes.put(Attribute.INDICES, request.indices());
             attributes.put(Attribute.PHASE_LATENCY_MAP, searchRequestContext.phaseTookMap());
+            attributes.put(Attribute.USER_NAME, request.source().labels().get("user_name"));
+            attributes.put(Attribute.CUSTOMIZED_TAG, request.source().labels().get("my_tenant_tag"));
             SearchQueryRecord record = new SearchQueryRecord(request.getOrCreateAbsoluteStartMillis(), measurements, attributes);
             queryInsightsService.addRecord(record);
         } catch (Exception e) {
