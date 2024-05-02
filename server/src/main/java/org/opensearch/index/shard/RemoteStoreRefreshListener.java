@@ -30,6 +30,7 @@ import org.opensearch.index.engine.EngineException;
 import org.opensearch.index.engine.InternalEngine;
 import org.opensearch.index.remote.RemoteSegmentTransferTracker;
 import org.opensearch.index.seqno.SequenceNumbers;
+import org.opensearch.index.store.CompositeDirectory;
 import org.opensearch.index.store.RemoteSegmentStoreDirectory;
 import org.opensearch.index.store.remote.metadata.RemoteSegmentMetadata;
 import org.opensearch.index.translog.Translog;
@@ -284,8 +285,15 @@ public final class RemoteStoreRefreshListener extends ReleasableRetryableRefresh
                         }
                     }, latch);
 
+                    Collection<String> segmentsToRefresh = localSegmentsPostRefresh.stream()
+                        .filter(file -> !skipUpload(file))
+                        .collect(Collectors.toList());
                     // Start the segments files upload
                     uploadNewSegments(localSegmentsPostRefresh, localSegmentsSizeMap, segmentUploadsCompletedListener);
+                    Directory directory = ((FilterDirectory) (((FilterDirectory) storeDirectory).getDelegate())).getDelegate();
+                    if (directory instanceof CompositeDirectory) {
+                        ((CompositeDirectory) directory).afterSyncToRemote(segmentsToRefresh);
+                    }
                     latch.await();
                 } catch (EngineException e) {
                     logger.warn("Exception while reading SegmentInfosSnapshot", e);
