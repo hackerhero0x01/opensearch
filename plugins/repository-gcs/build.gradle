@@ -73,7 +73,7 @@ dependencies {
   api 'com.google.code.gson:gson:2.10.1'
 
   runtimeOnly "com.google.guava:guava:${versions.guava}"
-  api 'com.google.guava:failureaccess:1.0.1'
+  api 'com.google.guava:failureaccess:1.0.2'
 
   api "com.google.http-client:google-http-client:${versions.google_http_client}"
   api "com.google.http-client:google-http-client-appengine:${versions.google_http_client}"
