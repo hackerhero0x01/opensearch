@@ -12,7 +12,6 @@ import org.apache.logging.log4j.Logger;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.remote.RemoteTranslogTransferTracker;
-import org.opensearch.index.translog.transfer.FileSnapshot.TransferFileSnapshot;
 import org.opensearch.index.translog.transfer.listener.FileTransferListener;
 
 import java.io.IOException;
@@ -26,22 +25,30 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * FileTransferTracker keeps track of translog files uploaded to the remote translog
+ * FileTransferTracker keeps track of generational translog files uploaded to the remote translog
  */
 public class FileTransferTracker implements FileTransferListener {
 
     private final ConcurrentHashMap<String, TransferState> fileTransferTracker;
+    private final ConcurrentHashMap<Long, TransferState> generationalFilesTransferTracker;
     private final ShardId shardId;
     private final RemoteTranslogTransferTracker remoteTranslogTransferTracker;
     private Map<String, Long> bytesForTlogCkpFileToUpload;
     private long fileTransferStartTime = -1;
     private final Logger logger;
+    private final boolean startUploadingTranslogCkpAsMetadata;
 
-    public FileTransferTracker(ShardId shardId, RemoteTranslogTransferTracker remoteTranslogTransferTracker) {
+    public FileTransferTracker(
+        ShardId shardId,
+        RemoteTranslogTransferTracker remoteTranslogTransferTracker,
+        boolean startTranslogCkpAsObjectMetadata
+    ) {
         this.shardId = shardId;
         this.fileTransferTracker = new ConcurrentHashMap<>();
+        this.generationalFilesTransferTracker = new ConcurrentHashMap<>();
         this.remoteTranslogTransferTracker = remoteTranslogTransferTracker;
         this.logger = Loggers.getLogger(getClass(), shardId);
+        this.startUploadingTranslogCkpAsMetadata = startTranslogCkpAsObjectMetadata;
     }
 
     void recordFileTransferStartTime(long uploadStartTime) {
@@ -51,13 +58,18 @@ public class FileTransferTracker implements FileTransferListener {
         }
     }
 
-    void recordBytesForFiles(Set<TransferFileSnapshot> toUpload) {
+    void recordBytesForFiles(Set<TranslogCheckpointSnapshot> toUpload) {
         bytesForTlogCkpFileToUpload = new HashMap<>();
         toUpload.forEach(file -> {
             try {
-                bytesForTlogCkpFileToUpload.put(file.getName(), file.getContentLength());
+                bytesForTlogCkpFileToUpload.put(file.getTranslogFileName(), file.getTranslogFileContentLength());
             } catch (IOException ignored) {
-                bytesForTlogCkpFileToUpload.put(file.getName(), 0L);
+                bytesForTlogCkpFileToUpload.put(file.getTranslogFileName(), 0L);
+            }
+            try {
+                bytesForTlogCkpFileToUpload.put(file.getCheckpointFileName(), file.getCheckpointFileContentLength());
+            } catch (IOException ignored) {
+                bytesForTlogCkpFileToUpload.put(file.getCheckpointFileName(), 0L);
             }
         });
     }
@@ -67,16 +79,34 @@ public class FileTransferTracker implements FileTransferListener {
     }
 
     @Override
-    public void onSuccess(TransferFileSnapshot fileSnapshot) {
+    public void onSuccess(TranslogCheckpointSnapshot fileSnapshot) {
         try {
             long durationInMillis = (System.nanoTime() - fileTransferStartTime) / 1_000_000L;
             remoteTranslogTransferTracker.addUploadTimeInMillis(durationInMillis);
-            remoteTranslogTransferTracker.addUploadBytesSucceeded(bytesForTlogCkpFileToUpload.get(fileSnapshot.getName()));
+            remoteTranslogTransferTracker.addUploadBytesSucceeded(bytesForTlogCkpFileToUpload.get(fileSnapshot.getTranslogFileName()));
+            remoteTranslogTransferTracker.addUploadBytesSucceeded(bytesForTlogCkpFileToUpload.get(fileSnapshot.getCheckpointFileName()));
         } catch (Exception ex) {
             logger.error("Failure to update translog upload success stats", ex);
         }
+        addGeneration(fileSnapshot.getGeneration(), TransferState.SUCCESS);
+        add(fileSnapshot.getTranslogFileName(), TransferState.SUCCESS);
+        if (!startUploadingTranslogCkpAsMetadata) {
+            add(fileSnapshot.getCheckpointFileName(), TransferState.SUCCESS);
+        }
+    }
 
-        add(fileSnapshot.getName(), TransferState.SUCCESS);
+    void addGeneration(long generation, boolean success) {
+        TransferState targetState = success ? TransferState.SUCCESS : TransferState.FAILED;
+        addGeneration(generation, targetState);
+    }
+
+    private void addGeneration(long generation, TransferState targetState) {
+        generationalFilesTransferTracker.compute(generation, (k, v) -> {
+            if (v == null || v.validateNextState(targetState)) {
+                return targetState;
+            }
+            throw new IllegalStateException("Unexpected transfer state " + v + "while setting target to" + targetState);
+        });
     }
 
     void add(String file, boolean success) {
@@ -94,11 +124,12 @@ public class FileTransferTracker implements FileTransferListener {
     }
 
     @Override
-    public void onFailure(TransferFileSnapshot fileSnapshot, Exception e) {
+    public void onFailure(TranslogCheckpointSnapshot fileSnapshot, Exception e) {
         long durationInMillis = (System.nanoTime() - fileTransferStartTime) / 1_000_000L;
         remoteTranslogTransferTracker.addUploadTimeInMillis(durationInMillis);
-        remoteTranslogTransferTracker.addUploadBytesFailed(bytesForTlogCkpFileToUpload.get(fileSnapshot.getName()));
-        add(fileSnapshot.getName(), TransferState.FAILED);
+        remoteTranslogTransferTracker.addUploadBytesFailed(bytesForTlogCkpFileToUpload.get(fileSnapshot.getTranslogFileName()));
+        remoteTranslogTransferTracker.addUploadBytesFailed(bytesForTlogCkpFileToUpload.get(fileSnapshot.getCheckpointFileName()));
+        addGeneration(fileSnapshot.getGeneration(), TransferState.FAILED);
     }
 
     public void delete(List<String> names) {
@@ -107,14 +138,34 @@ public class FileTransferTracker implements FileTransferListener {
         }
     }
 
+    public void deleteGenerations(Set<Long> generations) {
+        for (Long generation : generations) {
+            generationalFilesTransferTracker.remove(generation);
+        }
+    }
+
     public boolean uploaded(String file) {
         return fileTransferTracker.get(file) == TransferState.SUCCESS;
     }
 
-    public Set<TransferFileSnapshot> exclusionFilter(Set<TransferFileSnapshot> original) {
+    public boolean translogGenerationUploaded(Long generation) {
+        return generationalFilesTransferTracker.get(generation) == TransferState.SUCCESS;
+    }
+
+    public Set<TranslogCheckpointSnapshot> exclusionFilter(Set<TranslogCheckpointSnapshot> original) {
         return original.stream()
-            .filter(fileSnapshot -> fileTransferTracker.get(fileSnapshot.getName()) != TransferState.SUCCESS)
+            .filter(fileSnapshot -> generationalFilesTransferTracker.get(fileSnapshot.getGeneration()) != TransferState.SUCCESS)
             .collect(Collectors.toSet());
+    }
+
+    public Set<Long> allUploadedGeneration() {
+        Set<Long> successGenFileTransferTracker = new HashSet<>();
+        generationalFilesTransferTracker.forEach((k, v) -> {
+            if (v == TransferState.SUCCESS) {
+                successGenFileTransferTracker.add(k);
+            }
+        });
+        return successGenFileTransferTracker;
     }
 
     public Set<String> allUploaded() {

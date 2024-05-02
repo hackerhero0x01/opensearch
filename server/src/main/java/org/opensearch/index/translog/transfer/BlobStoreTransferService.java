@@ -18,7 +18,7 @@ import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobMetadata;
 import org.opensearch.common.blobstore.BlobPath;
 import org.opensearch.common.blobstore.BlobStore;
-import org.opensearch.common.blobstore.FetchBlobResult;
+import org.opensearch.common.blobstore.InputStreamWithMetadata;
 import org.opensearch.common.blobstore.stream.write.WriteContext;
 import org.opensearch.common.blobstore.stream.write.WritePriority;
 import org.opensearch.common.blobstore.transfer.RemoteTransferContainer;
@@ -54,6 +54,11 @@ public class BlobStoreTransferService implements TransferService {
     public BlobStoreTransferService(BlobStore blobStore, ThreadPool threadPool) {
         this.blobStore = blobStore;
         this.threadPool = threadPool;
+    }
+
+    @Override
+    public boolean isBlobMetadataSupported() {
+        return blobStore.isBlobMetadataSupported();
     }
 
     @Override
@@ -98,6 +103,7 @@ public class BlobStoreTransferService implements TransferService {
             if (!(blobStore.blobContainer(blobPath) instanceof AsyncMultiStreamBlobContainer)) {
                 uploadBlob(ThreadPool.Names.TRANSLOG_TRANSFER, fileSnapshot, blobPath, listener, writePriority);
             } else {
+                logger.info("uploading file = {}", fileSnapshot.getName());
                 uploadBlob(fileSnapshot, listener, blobPath, writePriority);
             }
         });
@@ -112,6 +118,8 @@ public class BlobStoreTransferService implements TransferService {
     ) {
 
         try {
+            Map<String, String> metadata = fileSnapshot.getMetadata();
+
             ChannelFactory channelFactory = FileChannel::open;
             long contentLength;
             try (FileChannel channel = channelFactory.open(fileSnapshot.getPath(), StandardOpenOption.READ)) {
@@ -130,7 +138,8 @@ public class BlobStoreTransferService implements TransferService {
                 writePriority,
                 (size, position) -> new OffsetRangeFileInputStream(fileSnapshot.getPath(), size, position),
                 Objects.requireNonNull(fileSnapshot.getChecksum()),
-                remoteIntegrityEnabled
+                remoteIntegrityEnabled,
+                metadata
             );
             ActionListener<Void> completionListener = ActionListener.wrap(resp -> listener.onResponse(fileSnapshot), ex -> {
                 logger.error(() -> new ParameterizedMessage("Failed to upload blob {}", fileSnapshot.getName()), ex);
@@ -168,7 +177,7 @@ public class BlobStoreTransferService implements TransferService {
 
     @Override
     @ExperimentalApi
-    public FetchBlobResult downloadBlobWithMetadata(Iterable<String> path, String fileName) throws IOException {
+    public InputStreamWithMetadata downloadBlobWithMetadata(Iterable<String> path, String fileName) throws IOException {
         return blobStore.blobContainer((BlobPath) path).readBlobWithMetadata(fileName);
     }
 

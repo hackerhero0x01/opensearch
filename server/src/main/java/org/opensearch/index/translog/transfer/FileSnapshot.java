@@ -22,6 +22,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -38,6 +39,8 @@ public class FileSnapshot implements Closeable {
     private Path path;
     @Nullable
     private byte[] content;
+    @Nullable
+    private Map<String, String> metadata;
 
     private FileSnapshot(Path path) throws IOException {
         Objects.requireNonNull(path);
@@ -55,6 +58,14 @@ public class FileSnapshot implements Closeable {
 
     public Path getPath() {
         return path;
+    }
+
+    public void setMetadata(Map<String, String> metadata) {
+        this.metadata = metadata;
+    }
+
+    public Map<String, String> getMetadata() {
+        return metadata;
     }
 
     public String getName() {

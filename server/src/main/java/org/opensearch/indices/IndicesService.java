@@ -42,6 +42,7 @@ import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.opensearch.OpenSearchException;
 import org.opensearch.ResourceAlreadyExistsException;
+import org.opensearch.Version;
 import org.opensearch.action.admin.indices.stats.CommonStats;
 import org.opensearch.action.admin.indices.stats.CommonStatsFlags;
 import org.opensearch.action.admin.indices.stats.CommonStatsFlags.Flag;
@@ -482,12 +483,14 @@ public class IndicesService extends AbstractLifecycleComponent
         this.allowExpensiveQueries = ALLOW_EXPENSIVE_QUERIES.get(clusterService.getSettings());
         clusterService.getClusterSettings().addSettingsUpdateConsumer(ALLOW_EXPENSIVE_QUERIES, this::setAllowExpensiveQueries);
         this.remoteDirectoryFactory = remoteDirectoryFactory;
+        Supplier<Version> minNodeVersionSupplier = () -> clusterService.state().nodes().getMinNodeVersion();
         this.translogFactorySupplier = getTranslogFactorySupplier(
             repositoriesServiceSupplier,
             threadPool,
             remoteStoreStatsTrackerFactory,
             settings,
-            remoteStoreSettings
+            remoteStoreSettings,
+            minNodeVersionSupplier
         );
         this.searchRequestStats = searchRequestStats;
         this.clusterDefaultRefreshInterval = CLUSTER_DEFAULT_INDEX_REFRESH_INTERVAL_SETTING.get(clusterService.getSettings());
@@ -518,7 +521,8 @@ public class IndicesService extends AbstractLifecycleComponent
         ThreadPool threadPool,
         RemoteStoreStatsTrackerFactory remoteStoreStatsTrackerFactory,
         Settings settings,
-        RemoteStoreSettings remoteStoreSettings
+        RemoteStoreSettings remoteStoreSettings,
+        Supplier<Version> minNodeVersionSupplier
     ) {
         return (indexSettings, shardRouting) -> {
             if (indexSettings.isRemoteTranslogStoreEnabled() && shardRouting.primary()) {
@@ -527,7 +531,8 @@ public class IndicesService extends AbstractLifecycleComponent
                     threadPool,
                     indexSettings.getRemoteStoreTranslogRepository(),
                     remoteStoreStatsTrackerFactory.getRemoteTranslogTransferTracker(shardRouting.shardId()),
-                    remoteStoreSettings
+                    remoteStoreSettings,
+                    minNodeVersionSupplier
                 );
             } else if (isRemoteDataAttributePresent(settings) && shardRouting.primary()) {
                 return new RemoteBlobStoreInternalTranslogFactory(
@@ -535,7 +540,8 @@ public class IndicesService extends AbstractLifecycleComponent
                     threadPool,
                     RemoteStoreNodeAttribute.getRemoteStoreTranslogRepo(indexSettings.getNodeSettings()),
                     remoteStoreStatsTrackerFactory.getRemoteTranslogTransferTracker(shardRouting.shardId()),
-                    remoteStoreSettings
+                    remoteStoreSettings,
+                    minNodeVersionSupplier
                 );
             }
             return new InternalTranslogFactory();
